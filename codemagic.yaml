@@ -1,5 +1,10 @@
 workflows:
-    sample-workflow:
-        name: Codemagic Sample Workflow
-        max_build_duration: 30
-        instance_type: mac_mini_m2
+  flutter-ios-simulator:
+    name: Flutter iOS Simulator
+    environment:
+      flutter: 3.32.6
+      xcode: 16.2
+    scripts:
+      - flutter build ios --simulator --flavor staging  # --flavor is optional
+    artifacts:
+      - build/ios/iphonesimulator/Runner.app
