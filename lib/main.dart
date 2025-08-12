@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'user_login.dart';
@@ -9,13 +10,23 @@ import '_app_drawer.dart';
 import 'mod_bula_pro.dart';
 import 'mod_scribe.dart';
 import 'mod_medsearch.dart';
-import 'settings.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'mod_medcalc.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
   // Ensure that plugin services are initialized before running the app.
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Configure system UI overlay style for edge-to-edge support
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
+  
   // You can perform any asynchronous initialization here if needed.
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,);
@@ -89,64 +100,47 @@ class UserOnboardingWrapper extends StatelessWidget {
         );
       }
 
-      // Verificar perfil
-      final profileDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final profileData = profileDoc.data();
-      
-      if (profileData == null) {
-        return const ProfileSetupWrapper();
-      }
-      
-      // Verificar TODOS os campos obrigatórios do perfil
-      final displayName = (profileData['display_name'] ?? '').toString().trim();
-      final country = (profileData['country'] ?? '').toString().trim();
-      final currency = (profileData['currency'] ?? '').toString().trim();
-      final language = (profileData['language'] ?? '').toString().trim();
-      
-      final profileIncomplete = displayName.isEmpty || country.isEmpty || currency.isEmpty || language.isEmpty;
-      
-      if (profileIncomplete) {
-        return const ProfileSetupWrapper();
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userData = userDoc.data();
+
+      if (!userDoc.exists) {
+        return const EditProfilePage();
       }
 
-      // Verificar configurações
-      final configDoc = await FirebaseFirestore.instance.collection('config').doc(user.uid).get();
-      final configData = configDoc.data();
+      bool needsSetup = false;
       
-      if (configData == null) {
-        return const SettingsSetupWrapper();
-      }
-      
-      // Verificar TODOS os campos obrigatórios da configuração
-      final scribeType = configData['scribetype'];
-      final journals = configData['journals'] as List?;
-      
-      // Ambos os campos são obrigatórios
-      final configIncomplete = scribeType == null || journals == null || journals.isEmpty;
-      
-      if (configIncomplete) {
-        return const SettingsSetupWrapper();
+      // Check if user has incomplete profile data
+      if (userData == null ||
+          userData['name']?.toString().trim().isEmpty == true ||
+          userData['country']?.toString().trim().isEmpty == true ||
+          userData['specialty']?.toString().trim().isEmpty == true) {
+        needsSetup = true;
       }
 
-      // Tudo OK - mostrar home
-      return const Home(title: 'FirstDoctor');
+      if (needsSetup) {
+        return const EditProfilePage();
+      }
+
+      // User is properly set up, go to main dashboard
+      return const Dashboard();
     } catch (e) {
       return Scaffold(
         body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error, size: 64, color: Colors.red),
-                const SizedBox(height: 16),
-                Text(
-                  'Erro ao verificar configurações: $e',
-                  style: const TextStyle(color: Colors.red, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Colors.red,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Erro ao verificar configuração do usuário: $e',
+                style: const TextStyle(color: Colors.red),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
       );
@@ -160,365 +154,100 @@ class UserOnboardingWrapper extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        
+        if (snapshot.hasError || !snapshot.hasData) {
+          return const Scaffold(
             body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Verificando configurações...'),
-                ],
-              ),
+              child: Text('Erro ao carregar dados do usuário', style: TextStyle(color: Colors.red)),
             ),
           );
         }
-
-        if (snapshot.hasError) {
-          return Scaffold(
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.error, size: 64, color: Colors.red),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Erro: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.red, fontSize: 16),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }
-
-        return snapshot.data ?? const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        
+        return snapshot.data!;
       },
     );
   }
 }
 
-class ProfileSetupWrapper extends StatelessWidget {
-  const ProfileSetupWrapper({super.key});
+class Dashboard extends StatefulWidget {
+  const Dashboard({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.person_outline, size: 80, color: Colors.blue),
-            const SizedBox(height: 24),
-            const Text(
-              'Complete seu perfil',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Para usar o aplicativo, você precisa completar seu perfil com informações básicas.',
-              style: TextStyle(fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (context) => const EditProfilePage()),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text('Completar Perfil'),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () async {
-                await FirebaseAuth.instance.signOut();
-              },
-              child: const Text('Sair da conta'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  State<Dashboard> createState() => _DashboardState();
 }
 
-class SettingsSetupWrapper extends StatelessWidget {
-  const SettingsSetupWrapper({super.key});
-
+class _DashboardState extends State<Dashboard> {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.settings, size: 80, color: Colors.orange),
-            const SizedBox(height: 24),
-            const Text(
-              'Configure suas preferências',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Para usar o aplicativo, você precisa configurar suas preferências dos módulos.',
-              style: TextStyle(fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (context) => const SettingsPage()),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text('Configurar Aplicativo'),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () async {
-                await FirebaseAuth.instance.signOut();
-              },
-              child: const Text('Sair da conta'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class Home extends StatefulWidget {
-  const Home({super.key, required this.title});
-
-  final String title;
-
-  @override
-  State<Home> createState() => _HomeState();
-}
-
-class _HomeState extends State<Home> {
-  String? _userName;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchUserName();
-  }
-
-  Future<void> _fetchUserName() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      if (mounted) {
-        setState(() {
-          _userName = doc.data()?['display_name'];
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    
     return Scaffold(
       drawer: const AppDrawer(),
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/images/soft-gradient-diagonal.webp'),
+            image: AssetImage('assets/images/diagonal-gradient.webp'),
             fit: BoxFit.fill,
           ),
         ),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              // Fundo do cabeçalho
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 120,
-                child: Container(
-                  decoration: const BoxDecoration(
-                    image: DecorationImage(
-                      image: AssetImage('assets/images/diagonal-gradient.webp'),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    child: Row(
-                      children: [
-                        // Botão do menu
-                        Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                spreadRadius: 1,
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Builder(
-                            builder: (BuildContext context) {
-                              return IconButton(
-                                icon: const Icon(Icons.menu, color: Colors.black87),
-                                onPressed: () {
-                                  Scaffold.of(context).openDrawer();
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        // Texto de boas-vindas
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'FirstDoctor',
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  shadows: [
-                                    Shadow(
-                                      offset: Offset(1, 1),
-                                      blurRadius: 2,
-                                      color: Colors.black26,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Text(
-                                '${(_userName != null && _userName!.isNotEmpty) ? _userName : (user?.email ?? 'User')}',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w400,
-                                  color: Colors.white70,
-                                  shadows: [
-                                    Shadow(
-                                      offset: Offset(1, 1),
-                                      blurRadius: 2,
-                                      color: Colors.black26,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              // Conteúdo principal
-              Padding(
-                padding: const EdgeInsets.only(top: 120, left: 24, right: 24, bottom: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          children: [
+            // Cabeçalho fixo - toca o topo da tela como mod_bula_pro.dart
+            Container(
+              height: 120,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 40, left: 16, right: 16, bottom: 16),
+                child: Row(
                   children: [
-                    Expanded(
-                      child: CustomScrollView(
-                        slivers: [
-                          SliverPadding(
-                            padding: const EdgeInsets.only(top: 24, left: 0, right: 0, bottom: 16),
-                            sliver: SliverToBoxAdapter(
-                              child: Text(
-                                'Selecione uma função',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
-                                  shadows: [
-                                    Shadow(
-                                      offset: Offset(1, 1),
-                                      blurRadius: 2,
-                                      color: Colors.white24,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                    // Botão do menu
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            spreadRadius: 1,
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
                           ),
-                          SliverMasonryGrid.count(
-                            crossAxisCount: MediaQuery.of(context).size.width > 600 ? 3 : 2,
-                            crossAxisSpacing: 8,
-                            mainAxisSpacing: 8,
-                            itemBuilder: (context, index) {
-                              final cards = [
-                                AppFeatureCard(
-                                  title: 'Scribe',
-                                  subtitle: 'Seu assistente com prontuários',
-                                  color: Colors.blue.shade50,
-                                  icon: Icons.edit_document,
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const ScribePage()),
-                                    );
-                                  },
-                                ),
-                                AppFeatureCard(
-                                  title: 'MedSearch',
-                                  subtitle: 'Busca científica para profissionais de saúde',
-                                  color: Colors.green.shade50,
-                                  icon: Icons.search,
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const MedSearchPage()),
-                                    );
-                                  },
-                                ),
-                                AppFeatureCard(
-                                  title: 'BulaPro',
-                                  subtitle: 'Tudo que você precisa sobre medicações',
-                                  color: Colors.deepPurple.shade50,
-                                  icon: Icons.medication,
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const BulaProPage()),
-                                    );
-                                  },
-                                ),
-                              ];
-                              return cards[index];
+                        ],
+                      ),
+                      child: Builder(
+                        builder: (BuildContext context) {
+                          return IconButton(
+                            icon: const Icon(Icons.menu, color: Colors.black87),
+                            onPressed: () {
+                              Scaffold.of(context).openDrawer();
                             },
-                            childCount: 3,
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    // Texto de boas-vindas
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'FirstDoctor',
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  offset: Offset(1, 1),
+                                  blurRadius: 2,
+                                  color: Colors.black26,
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -526,8 +255,112 @@ class _HomeState extends State<Home> {
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
+            // Área de conteúdo com background soft-gradient-diagonal
+            Expanded(
+              child: Container(
+                decoration: const BoxDecoration(
+                  image: DecorationImage(
+                    image: AssetImage('assets/images/soft-gradient-diagonal.webp'),
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                child: SafeArea(
+                  top: false, // Não adiciona padding no topo para o header tocar a tela
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0), // Padding interno
+                    child: CustomScrollView(
+                      slivers: [
+                        SliverPadding(
+                          padding: const EdgeInsets.only(top: 0, left: 0, right: 0, bottom: 16),
+                          sliver: SliverToBoxAdapter(
+                            child: Text(
+                              'Selecione uma função',
+                              style: TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                                shadows: [
+                                  Shadow(
+                                    offset: const Offset(1, 1),
+                                    blurRadius: 2,
+                                    color: Colors.black.withValues(alpha: 0.2),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        SliverGrid(
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 16.0,
+                            mainAxisSpacing: 16.0,
+                          ),
+                          delegate: SliverChildBuilderDelegate(
+                            (BuildContext context, int index) {
+                            final cards = [
+                              AppFeatureCard(
+                                title: 'Scribe',
+                                subtitle: 'Transcrição médica inteligente',
+                                color: Colors.blue.shade50,
+                                icon: Icons.edit_document,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (context) => const ScribePage()),
+                                  );
+                                },
+                              ),
+                              AppFeatureCard(
+                                title: 'MedSearch',
+                                subtitle: 'Busca inteligente de medicamentos',
+                                color: Colors.green.shade50,
+                                icon: Icons.search,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (context) => const MedSearchPage()),
+                                  );
+                                },
+                              ),
+                              AppFeatureCard(
+                                title: 'BulaPro',
+                                subtitle: 'Tudo que você precisa sobre medicações',
+                                color: Colors.deepPurple.shade50,
+                                icon: Icons.medication,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (context) => const BulaProPage()),
+                                  );
+                                },
+                              ),
+                              AppFeatureCard(
+                                title: 'MedCalc',
+                                subtitle: 'Calculadoras médicas avançadas',
+                                color: Colors.orange.shade50,
+                                icon: Icons.calculate,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (context) => const MedCalcPage()),
+                                  );
+                                },
+                              ),
+                            ];
+                            return cards[index];
+                          },
+                          childCount: 4,
+                        ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
