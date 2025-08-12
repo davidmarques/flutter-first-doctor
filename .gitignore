@@ -82,4 +82,4 @@ android/key.properties
 .env.*
 #firebase_options.dart
 google-services.json
-GoogleService-Info.plist
+#GoogleService-Info.plist
