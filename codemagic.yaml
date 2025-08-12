@@ -2,9 +2,18 @@ workflows:
   flutter-ios-simulator:
     name: Flutter iOS Simulator
     environment:
-      flutter: 3.32.6
+      flutter: 3.32.8
       xcode: 16.2
     scripts:
-      - flutter build ios --simulator
+      - name: Install Flutter dependencies
+        script: flutter pub get
+
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+
+      - name: Build iOS Simulator
+        script: flutter build ios --simulator --no-codesign
     artifacts:
       - build/ios/iphonesimulator/Runner.app
