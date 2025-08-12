@@ -80,6 +80,6 @@ android/key.properties
 # Configurações de APIs
 *.env
 .env.*
-firebase_options.dart
+#firebase_options.dart
 google-services.json
 GoogleService-Info.plist
