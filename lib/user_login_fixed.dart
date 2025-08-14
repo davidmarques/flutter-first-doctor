@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'user_create_account.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -86,6 +87,31 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Once signed in, return the UserCredential
       final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      
+      // Verificar se é o primeiro login (criar documentos se necessário)
+      final user = userCredential.user;
+      if (user != null) {
+        // Verificar se documento do usuário existe, se não, criar com valores padrão brasileiros
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        if (!userDoc.exists) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'country': 'BR',
+            'currency': 'brl',
+            'display_name': user.displayName ?? '',
+            'email': user.email ?? '',
+            'language': 'pt',
+          });
+        }
+        
+        // Verificar se documento de config existe, se não, criar
+        final configDoc = await FirebaseFirestore.instance.collection('config').doc(user.uid).get();
+        if (!configDoc.exists) {
+          await FirebaseFirestore.instance.collection('config').doc(user.uid).set({
+            'journals': <String>[], // Array vazio de strings
+            'scribetype': null, // Null para forçar configuração
+          });
+        }
+      }
       
       print('Successfully signed in with Firebase: ${userCredential.user?.email}');
       

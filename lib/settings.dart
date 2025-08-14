@@ -3,6 +3,8 @@ import 'settings_scribe.dart';
 import 'settings_search.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'widgets/secret_url_footer.dart';
+import 'main.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -22,6 +24,25 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _saving = false;
   bool _loaded = false;
   String? _saveError;
+
+  /// Verifica se o scribetype está selecionado
+  bool _hasScribeTypeSelected() {
+    return _currentScribeType != null && _currentScribeType!.trim().isNotEmpty;
+  }
+
+  /// Verifica se pelo menos uma revista está selecionada
+  bool _hasJournalsSelected() {
+    return _currentJournals.isNotEmpty;
+  }
+
+  /// Navega para o Dashboard principal com verificação
+  void _navigateToDashboard() {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const UserOnboardingWrapper()),
+      (route) => false,
+    );
+  }
 
   bool _listEquals(List? a, List? b) {
     if (a == null && b == null) return true;
@@ -48,6 +69,11 @@ class _SettingsPageState extends State<SettingsPage> {
     final searchChanged = !_mapEquals(_currentSearchConfig, _initialSearchConfig);
     final journalsChanged = !_listEquals(_currentJournals, _initialJournals);
     return scribeChanged || searchChanged || journalsChanged;
+  }
+
+  /// Verifica se todos os campos obrigatórios estão preenchidos
+  bool _canSave() {
+    return _hasScribeTypeSelected() && _hasJournalsSelected() && _hasChanges();
   }
 
   @override
@@ -151,7 +177,12 @@ class _SettingsPageState extends State<SettingsPage> {
               color: Colors.white,
               tooltip: 'Voltar',
               onPressed: () {
-                Navigator.of(context).maybePop();
+                // Se não conseguir voltar, vai para o Dashboard
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  _navigateToDashboard();
+                }
               },
             ),
             title: const Text(
@@ -167,7 +198,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8.0),
                   child: ElevatedButton(
-                    onPressed: (!_saving && _hasChanges())
+                    onPressed: (!_saving && _canSave())
                         ? _saveConfig
                         : null,
                     style: ElevatedButton.styleFrom(
@@ -195,22 +226,60 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         child: SafeArea(
           child: ListView(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
             children: [
               // Seção Search
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
+                  color: _hasJournalsSelected() 
+                      ? Colors.white.withOpacity(0.9)
+                      : Colors.white.withOpacity(0.5),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey[300]!),
+                  border: Border.all(
+                    color: _hasJournalsSelected() 
+                        ? Colors.grey[300]!
+                        : Colors.orange,
+                    width: _hasJournalsSelected() ? 1 : 2,
+                  ),
                 ),
-                child: SettingsSearchSection(
-                  initialConfig: {
-                    'journals': _currentJournals,
-                    // Adicione outros campos se necessário
-                  },
-                  onChanged: _onSearchConfigChanged,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!_hasJournalsSelected())
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.red.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.warning, color: Colors.red, size: 16),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Selecione ao menos uma revista',
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    SettingsSearchSection(
+                      initialConfig: {
+                        'journals': _currentJournals,
+                        // Adicione outros campos se necessário
+                      },
+                      onChanged: _onSearchConfigChanged,
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 32),
@@ -218,12 +287,50 @@ class _SettingsPageState extends State<SettingsPage> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
+                  color: _hasScribeTypeSelected() 
+                      ? Colors.white.withOpacity(0.9)
+                      : Colors.white.withOpacity(0.5),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey[300]!),
+                  border: Border.all(
+                    color: _hasScribeTypeSelected() 
+                        ? Colors.grey[300]!
+                        : Colors.orange,
+                    width: _hasScribeTypeSelected() ? 1 : 2,
+                  ),
                 ),
-                child: SettingsScribeSection(
-                  onChanged: _onScribeTypeChanged,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!_hasScribeTypeSelected())
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.red.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.warning, color: Colors.red, size: 16),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Selecione um tipo de prontuário',
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    SettingsScribeSection(
+                      onChanged: _onScribeTypeChanged,
+                    ),
+                  ],
                 ),
               ),
               if (_saveError != null)
@@ -239,6 +346,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     child: Text(_saveError!, style: const TextStyle(color: Colors.red)),
                   ),
                 ),
+              // Espaçamento antes do texto de direitos autorais
+              const SizedBox(height: 48),
+              // Texto de direitos autorais no final do conteúdo
+              const SecretUrlFooter(),
             ],
           ),
         ),

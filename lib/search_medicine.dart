@@ -18,8 +18,10 @@ class _SearchMedicinePageState extends State<SearchMedicinePage> {
     final user = FirebaseAuth.instance.currentUser;
     final idToken = await user?.getIdToken();
     
+    // Obter a URL base dinâmica
+    final baseUrl = await ApiConfig.getCurrentUrl();
     return await http.get(
-      Uri.parse('$apiBaseUrl/searchlabelassets/br/$id'),
+      Uri.parse('$baseUrl/searchlabelassets/br/$id'),
       headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
     );
   }
@@ -137,7 +139,9 @@ class _SearchMedicinePageState extends State<SearchMedicinePage> {
       _error = null;
     });
     try {
-      final url = Uri.parse('$apiBaseUrl/searchmedicine/br/$query');
+      // Obter a URL base dinâmica
+      final baseUrl = await ApiConfig.getCurrentUrl();
+      final url = Uri.parse('$baseUrl/searchmedicine/br/$query');
       
       // Obter token de autenticação do Firebase
       final user = FirebaseAuth.instance.currentUser;

@@ -156,11 +156,11 @@ class _LoginScreenState extends State<LoginScreen> {
         final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
         if (!userDoc.exists) {
           await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'country': '',
-            'currency': '',
+            'country': 'BR',
+            'currency': 'brl',
             'display_name': user.displayName ?? '',
             'email': user.email ?? '',
-            'language': '',
+            'language': 'pt',
           });
         }
         

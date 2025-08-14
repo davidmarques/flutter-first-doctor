@@ -82,8 +82,10 @@ class _AdicionarMedicacaoModalState extends State<_AdicionarMedicacaoModal> {
     final user = FirebaseAuth.instance.currentUser;
     final idToken = await user?.getIdToken();
     
+    // Obter a URL base dinâmica
+    final baseUrl = await ApiConfig.getCurrentUrl();
     return await http.get(
-      Uri.parse('$apiBaseUrl/searchlabelassets/${_userCountry ?? 'br'}/$id/'),
+      Uri.parse('$baseUrl/searchlabelassets/${_userCountry ?? 'br'}/$id/'),
       headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
     );
   }
@@ -196,7 +198,9 @@ class _AdicionarMedicacaoModalState extends State<_AdicionarMedicacaoModal> {
       _error = null;
     });
     try {
-      final url = Uri.parse('$apiBaseUrl/searchmedicine/${_userCountry ?? 'br'}/$query');
+      // Obter a URL base dinâmica
+      final baseUrl = await ApiConfig.getCurrentUrl();
+      final url = Uri.parse('$baseUrl/searchmedicine/${_userCountry ?? 'br'}/$query');
       
       // Obter token de autenticação do Firebase
       final user = FirebaseAuth.instance.currentUser;

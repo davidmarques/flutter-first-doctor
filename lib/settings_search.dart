@@ -47,8 +47,11 @@ class _SettingsSearchSectionState extends State<SettingsSearchSection> {
       // Carregar journals do endpoint de forma autenticada
       final firebaseUser = FirebaseAuth.instance.currentUser;
       final idToken = await firebaseUser?.getIdToken();
+      
+      // Obter a URL base dinâmica
+      final baseUrl = await ApiConfig.getCurrentUrl();
       final response = await http.get(
-        Uri.parse('$apiBaseUrl/journals'),
+        Uri.parse('$baseUrl/journals'),
         headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
       );
       if (response.statusCode == 200) {

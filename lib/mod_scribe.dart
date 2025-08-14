@@ -70,8 +70,10 @@ class _ScribePageState extends State<ScribePage> {
       // Obter token de autenticação do Firebase
       final idToken = await user.getIdToken();
       
+      // Obter a URL base dinâmica
+      final baseUrl = await ApiConfig.getCurrentUrl();
       final response = await http.get(
-        Uri.parse('$apiBaseUrl/scribetypes'),
+        Uri.parse('$baseUrl/scribetypes'),
         headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
       );
       if (response.statusCode == 200) {
@@ -285,7 +287,10 @@ class _ScribePageState extends State<ScribePage> {
                                 _canUndo = false;
                                 _canRedo = false;
                               });
-                              final url = Uri.parse('$apiBaseUrl/scribe/${_userCountry ?? 'us'}');
+                              
+                              // Obter a URL base dinâmica
+                              final baseUrl = await ApiConfig.getCurrentUrl();
+                              final url = Uri.parse('$baseUrl/scribe/${_userCountry ?? 'us'}');
                               final postBody = json.encode({
                                 'scribetype': _currentScribeType,
                                 'scribetext': _inputController.text.trim(),
@@ -319,7 +324,10 @@ class _ScribePageState extends State<ScribePage> {
                                   bool done = false;
                                   while (!done && mounted) {
                                     await Future.delayed(const Duration(seconds: 2));
-                                    final statusUrl = Uri.parse('$apiBaseUrl/scribe/$taskhash');
+                                    
+                                    // Obter a URL base dinâmica para o status
+                                    final baseUrl = await ApiConfig.getCurrentUrl();
+                                    final statusUrl = Uri.parse('$baseUrl/scribe/$taskhash');
                                     
                                     // Obter token de autenticação para requisição de status
                                     final user = FirebaseAuth.instance.currentUser;

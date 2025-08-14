@@ -37,13 +37,13 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         // Criar documentos iniciais no Firestore após registro bem-sucedido
         final user = credential.user;
         if (user != null) {
-          // Criar documento na collection 'users' com campos obrigatórios vazios
+          // Criar documento na collection 'users' com valores padrão brasileiros
           await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'country': '',
-            'currency': '',
+            'country': 'BR',
+            'currency': 'brl',
             'display_name': '',
             'email': user.email ?? '',
-            'language': '',
+            'language': 'pt',
           });
           
           // Criar documento na collection 'config' com campos obrigatórios vazios

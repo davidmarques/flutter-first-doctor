@@ -4,7 +4,15 @@ workflows:
     environment:
       flutter: 3.32.8
       xcode: 16.2
+      groups:
+        - firebase-ios
     scripts:
+      - name: Load Firebase configuration
+        script: |
+          #!/usr/bin/env sh
+          set -e
+          echo $IOS_FIREBASE_SECRET > $CM_BUILD_DIR/ios/Runner/GoogleService-Info.plist
+
       - name: Install Flutter dependencies
         script: flutter pub get
 

@@ -4,7 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'user_login.dart';
-import 'profile_edit.dart';
+import 'profile.dart';
+import 'settings.dart';
 import '_app_feature_card.dart';
 import '_app_drawer.dart';
 import 'mod_bula_pro.dart';
@@ -12,6 +13,7 @@ import 'mod_scribe.dart';
 import 'mod_medsearch.dart';
 import 'mod_medcalc.dart';
 import 'firebase_options.dart';
+import 'config_base.dart';
 
 Future<void> main() async {
   // Ensure that plugin services are initialized before running the app.
@@ -26,6 +28,11 @@ Future<void> main() async {
       systemNavigationBarIconBrightness: Brightness.dark,
     ),
   );
+  
+  // Garantir que o app inicie sempre em modo de produção como padrão
+  // Verifica se já existe configuração, se não existe, garante modo produção
+  final currentMode = await ApiConfig.isDevelopmentMode();
+  print('DEBUG Main: App iniciando com isDevelopmentMode = $currentMode');
   
   // You can perform any asynchronous initialization here if needed.
   await Firebase.initializeApp(
@@ -104,21 +111,61 @@ class UserOnboardingWrapper extends StatelessWidget {
       final userData = userDoc.data();
 
       if (!userDoc.exists) {
-        return const EditProfilePage();
+        return const ProfilePage();
       }
 
-      bool needsSetup = false;
-      
-      // Check if user has incomplete profile data
+      // 1. First check: Profile completeness (users collection)
       if (userData == null ||
-          userData['name']?.toString().trim().isEmpty == true ||
-          userData['country']?.toString().trim().isEmpty == true ||
-          userData['specialty']?.toString().trim().isEmpty == true) {
-        needsSetup = true;
+          userData['display_name']?.toString().trim().isEmpty == true) {
+        // Profile incomplete -> go to Profile page
+        return const ProfilePage();
       }
 
-      if (needsSetup) {
-        return const EditProfilePage();
+      // 2. Second check: Settings completeness (config collection)
+      try {
+        final configDoc = await FirebaseFirestore.instance.collection('config').doc(user.uid).get();
+        final configData = configDoc.data();
+        
+        if (!configDoc.exists || configData == null) {
+          // Config doesn't exist -> go to Settings page
+          return const SettingsPage();
+        }
+        
+        // Check if essential config fields are properly set
+        final scribeType = configData['scribetype'];
+        if (scribeType == null || 
+            scribeType.toString().trim().isEmpty ||
+            scribeType is! String) {
+          // Essential scribetype missing, empty, or invalid type -> go to Settings page
+          return const SettingsPage();
+        }
+
+        // Check if journals is configured (should be a non-null list, can be empty)
+        final journals = configData['journals'];
+        if (journals == null) {
+          // Journals field missing -> go to Settings page
+          return const SettingsPage();
+        }
+
+        // Validate that journals is a proper list if not empty
+        if (journals is! List) {
+          // Journals is not a list -> go to Settings page
+          return const SettingsPage();
+        }
+
+        if (journals.isNotEmpty) {
+          // Check if all journal entries are valid non-empty strings
+          final validJournals = journals.where((item) => 
+            item is String && item.toString().trim().isNotEmpty).toList();
+          if (validJournals.length != journals.length) {
+            // Some journal entries are invalid -> go to Settings page
+            return const SettingsPage();
+          }
+        }
+        
+      } catch (e) {
+        // If config check fails, go to Settings page
+        return const SettingsPage();
       }
 
       // User is properly set up, go to main dashboard

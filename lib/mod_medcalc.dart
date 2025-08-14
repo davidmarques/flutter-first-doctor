@@ -1,4 +1,3 @@
-import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -6,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'config_base.dart';
+import 'mod_medcalc_modal.dart';
+import 'mod_medcalc_ans.dart';
 
 class MedCalcPage extends StatefulWidget {
   const MedCalcPage({super.key});
@@ -16,14 +17,16 @@ class MedCalcPage extends StatefulWidget {
 
 class _MedCalcPageState extends State<MedCalcPage> with SingleTickerProviderStateMixin {
   int _selectedTab = 0; // 0 = Ferramenta, 1 = Histórico
-  final List<String> _calculadoras = [];
-  final Map<String, String> _calculadorasNomes = {};
-  final TextEditingController _perguntaController = TextEditingController();
+  String? _calculadoraId;
+  String? _calculadoraNome;
+  String? _calculadoraDescricao;
+  String? _calculadoraPerguntas;
+  final TextEditingController _respostasController = TextEditingController();
   String? _resposta;
   String? _userCountry;
   bool _loadingQuestion = false;
+  bool _loadingCalculatorData = false;
   String? _pendingMessage;
-  List<Map<String, String>>? _resultParts;
 
   @override
   void initState() {
@@ -50,15 +53,67 @@ class _MedCalcPageState extends State<MedCalcPage> with SingleTickerProviderStat
 
   @override
   void dispose() {
-    _perguntaController.dispose();
+    _respostasController.dispose();
     super.dispose();
   }
 
+  Future<void> _loadCalculatorData(String calculatorId) async {
+    setState(() {
+      _loadingCalculatorData = true;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final idToken = await user?.getIdToken();
+
+      // Obter a URL base dinâmica
+      final baseUrl = await ApiConfig.getCurrentUrl();
+      final url = Uri.parse('$baseUrl/calcdata/${_userCountry ?? 'br'}/$calculatorId');
+      final response = await http.get(
+        url,
+        headers: idToken != null ? {'Authorization': 'Bearer $idToken'} : {},
+      );
+
+      final responseJson = json.decode(response.body);
+      
+      if (responseJson['success'] == true && responseJson['data'] != null) {
+        final data = responseJson['data'];
+        setState(() {
+          _calculadoraNome = data['name'] ?? _calculadoraNome;
+          _calculadoraDescricao = data['description'] ?? _calculadoraDescricao;
+          _calculadoraPerguntas = data['questions'] ?? '';
+          // Popular o campo de respostas com as perguntas
+          _respostasController.text = _calculadoraPerguntas ?? '';
+          _loadingCalculatorData = false;
+        });
+      } else {
+        setState(() {
+          _loadingCalculatorData = false;
+        });
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(responseJson['message'] ?? 'Erro ao carregar dados da calculadora')),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _loadingCalculatorData = false;
+      });
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro de conexão: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _enviarPergunta() async {
+    if (_calculadoraId == null) return;
+    
     setState(() {
       _loadingQuestion = true;
       _resposta = null;
-      _resultParts = null;
       _pendingMessage = null;
     });
 
@@ -66,17 +121,15 @@ class _MedCalcPageState extends State<MedCalcPage> with SingleTickerProviderStat
       final user = FirebaseAuth.instance.currentUser;
       final idToken = await user?.getIdToken();
 
-      // Construir o corpo da requisição
+      // Construir o corpo da requisição para calcexec
       final Map<String, dynamic> requestBody = {
-        'calculatorId1': _calculadoras[0],
-        'question': _perguntaController.text.trim(),
+        'id': _calculadoraId!,
+        'questions': _respostasController.text.trim(),
       };
-      
-      if (_calculadoras.length > 1) {
-        requestBody['calculatorId2'] = _calculadoras[1];
-      }
 
-      final url = Uri.parse('$apiBaseUrl/medicalcalculator/${_userCountry ?? 'br'}');
+      // Obter a URL base dinâmica
+      final baseUrl = await ApiConfig.getCurrentUrl();
+      final url = Uri.parse('$baseUrl/calcexec/${_userCountry ?? 'br'}');
       final response = await http.post(
         url,
         body: json.encode(requestBody),
@@ -97,16 +150,17 @@ class _MedCalcPageState extends State<MedCalcPage> with SingleTickerProviderStat
         return;
       }
 
-      final taskhash = responseJson['taskhash'];
-      String pendingMsg = responseJson['message'] ?? 'Processando pergunta...';
-      setState(() { _pendingMessage = pendingMsg; });
+      final taskhash = responseJson['task'];
+      setState(() { _pendingMessage = 'Processando cálculo...'; });
 
-      // Iniciar polling
+      // Iniciar polling para calcexec
       bool done = false;
       while (!done && mounted) {
         await Future.delayed(const Duration(seconds: 2));
         
-        final statusUrl = Uri.parse('$apiBaseUrl/medicalcalculator/$taskhash');
+        // Obter a URL base dinâmica para o status
+        final baseUrl = await ApiConfig.getCurrentUrl();
+        final statusUrl = Uri.parse('$baseUrl/calcexec/${_userCountry ?? 'br'}/$taskhash');
         final statusResp = await http.get(
           statusUrl,
           headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
@@ -133,14 +187,7 @@ class _MedCalcPageState extends State<MedCalcPage> with SingleTickerProviderStat
             _loadingQuestion = false;
             _resposta = data['result'] ?? '';
             _pendingMessage = null;
-            
-            // Processar result_parts
-            if (data['result_parts'] != null) {
-              _resultParts = (data['result_parts'] as List).map<Map<String, String>>((item) => {
-                'titulo': item['titulo'] ?? '',
-                'conteudo': item['conteudo'] ?? '',
-              }).toList();
-            }
+            // Não precisamos mais de result_parts para calcexec
           });
         }
       }
@@ -154,15 +201,26 @@ class _MedCalcPageState extends State<MedCalcPage> with SingleTickerProviderStat
     }
   }
 
-  void _abrirModalAdicionarCalculadora() async {
-    // TODO: Implementar modal para seleção de calculadoras
-    // Por enquanto, adiciona uma calculadora de exemplo
-    if (_calculadoras.length < 2) {
+  void _selecionarCalculadora() async {
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => CalculatorSearchModal(userCountry: _userCountry ?? 'br'),
+    );
+
+    if (result != null) {
       setState(() {
-        final id = 'calc_${DateTime.now().millisecondsSinceEpoch}';
-        _calculadoras.add(id);
-        _calculadorasNomes[id] = 'Calculadora de exemplo';
+        _calculadoraId = result['id']!;
+        _calculadoraNome = result['name']!;
+        _calculadoraDescricao = result['description']!;
+        _calculadoraPerguntas = null;
+        // Limpar resposta anterior ao selecionar nova calculadora
+        _resposta = null;
+        _respostasController.clear();
       });
+
+      // Carregar dados detalhados da calculadora
+      await _loadCalculatorData(result['id']!);
     }
   }
 
@@ -247,136 +305,228 @@ class _MedCalcPageState extends State<MedCalcPage> with SingleTickerProviderStat
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // 1 - Seleção de calculadoras
-                          Wrap(
-                            spacing: 8.0,
-                            runSpacing: 8.0,
-                            children: [
-                              ..._calculadoras.map((id) => Chip(
-                                    label: Text(_calculadorasNomes[id] ?? id),
-                                    onDeleted: () => setState(() {
-                                      _calculadoras.remove(id);
-                                      _calculadorasNomes.remove(id);
-                                    }),
-                                  )),
-                              if (_calculadoras.length < 2)
-                                ElevatedButton.icon(
-                                  onPressed: _abrirModalAdicionarCalculadora,
-                                  icon: const Icon(Icons.add),
-                                  label: const Text('Adicionar calculadora'),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-                          // 2 - Pergunta
-                          TextField(
-                            controller: _perguntaController,
-                            minLines: 2,
-                            maxLines: 4,
-                            decoration: InputDecoration(
-                              labelText: 'Digite sua pergunta sobre a(s) calculadora(s)',
-                              border: const OutlineInputBorder(
-                                borderRadius: BorderRadius.all(Radius.circular(8)),
-                              ),
-                              filled: true,
-                              fillColor: Colors.white.withOpacity(0.5),
-                            ),
-                            onChanged: (_) => setState(() {}),
-                          ),
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                image: const DecorationImage(
-                                  image: AssetImage('assets/images/diagonal-gradient.webp'),
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                              child: ElevatedButton(
-                                onPressed: _calculadoras.isEmpty || _perguntaController.text.trim().isEmpty || _loadingQuestion
-                                    ? null
-                                    : _enviarPergunta,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                          // 1 - Seleção de calculadora
+                          if (_calculadoraId == null) ...[
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  image: const DecorationImage(
+                                    image: AssetImage('assets/images/diagonal-gradient.webp'),
+                                    fit: BoxFit.cover,
                                   ),
                                 ),
-                                child: _loadingQuestion
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: ElevatedButton.icon(
+                                  onPressed: _selecionarCalculadora,
+                                  icon: const Icon(Icons.calculate),
+                                  label: const Text('Selecionar Calculadora'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    shadowColor: Colors.transparent,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ] else ...[
+                            // Calculadora selecionada
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey[300]!),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          _calculadoraNome ?? '',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 18,
                                           ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            _pendingMessage ?? 'Processando...',
+                                        ),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: _selecionarCalculadora,
+                                        icon: const Icon(Icons.swap_horiz, size: 16),
+                                        label: const Text('Trocar'),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.blue[700],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _calculadoraDescricao ?? '',
+                                    style: const TextStyle(
+                                      color: Colors.black54,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            // Caixa de perguntas da calculadora
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.orange[50],
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.orange[200]!),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.quiz_outlined, color: Colors.orange[700]),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Perguntas da Calculadora',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.orange[700],
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  if (_loadingCalculatorData)
+                                    const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.all(16.0),
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    )
+                                  else if (_calculadoraPerguntas != null && _calculadoraPerguntas!.isNotEmpty)
+                                    Text(
+                                      _calculadoraPerguntas!,
+                                      style: const TextStyle(
+                                        color: Colors.black87,
+                                        fontSize: 14,
+                                        height: 1.4,
+                                      ),
+                                    )
+                                  else
+                                    const Text(
+                                      'Carregando perguntas da calculadora...',
+                                      style: TextStyle(
+                                        color: Colors.black54,
+                                        fontSize: 14,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            // Campo de respostas ou resultado
+                            if (_resposta != null) ...[
+                              // Mostrar resultado do cálculo usando o componente modularizado
+                              MedCalcAnswerWidget(
+                                answer: _resposta!,
+                                onRefreshCalculation: () {
+                                  setState(() {
+                                    _resposta = null;
+                                    _respostasController.text = _calculadoraPerguntas ?? '';
+                                  });
+                                },
+                              ),
+                            ] else ...[
+                              // Campo de respostas
+                              TextField(
+                                controller: _respostasController,
+                                minLines: 4,
+                                maxLines: 12,
+                                decoration: InputDecoration(
+                                  labelText: 'Responda às perguntas acima',
+                                  hintText: 'Edite o texto acima adicionando suas respostas após cada pergunta...',
+                                  border: const OutlineInputBorder(
+                                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white.withOpacity(0.5),
+                                  helperText: 'Dica: Mantenha as perguntas e adicione suas respostas após cada uma',
+                                  helperMaxLines: 2,
+                                ),
+                                onChanged: (_) => setState(() {}),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            // Botão principal - só aparece quando não há resultado
+                            if (_resposta == null) ...[
+                              SizedBox(
+                                width: double.infinity,
+                                height: 50,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    image: const DecorationImage(
+                                      image: AssetImage('assets/images/diagonal-gradient.webp'),
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  child: ElevatedButton(
+                                    onPressed: _calculadoraId == null || _respostasController.text.trim().isEmpty || _loadingQuestion
+                                        ? null
+                                        : _enviarPergunta,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.transparent,
+                                      shadowColor: Colors.transparent,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    child: _loadingQuestion
+                                        ? Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                _pendingMessage ?? 'Processando...',
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ],
+                                          )
+                                        : Text(
+                                            _calculadoraId == null
+                                                ? 'Selecione uma calculadora'
+                                                : _respostasController.text.trim().isEmpty
+                                                    ? 'Responda às perguntas'
+                                                    : 'Efetuar Cálculo',
                                             style: const TextStyle(
                                               fontSize: 16,
                                               fontWeight: FontWeight.bold,
                                               color: Colors.white,
                                             ),
                                           ),
-                                        ],
-                                      )
-                                    : Text(
-                                        _calculadoras.isEmpty
-                                            ? 'Selecione ao menos uma calculadora'
-                                            : _calculadoras.length == 1
-                                                ? 'Perguntar sobre ${_calculadorasNomes[_calculadoras[0]] ?? _calculadoras[0]}'
-                                                : 'Perguntar sobre as calculadoras',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 32),
-                          // 3 - Resposta
-                          if (_resposta != null) ...[
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey[300]!),
-                              ),
-                              child: Html(data: _resposta!),
-                            ),
-                            if (_resultParts != null && _resultParts!.isNotEmpty) ...[
-                              const SizedBox(height: 16),
-                              const Text(
-                                'Resultados da Calculadora:',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              ...(_resultParts!.map((section) => Card(
-                                margin: const EdgeInsets.symmetric(vertical: 4),
-                                child: ExpansionTile(
-                                  title: Text(
-                                    section['titulo'] ?? '',
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
                                   ),
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.all(16.0),
-                                      child: Html(data: section['conteudo'] ?? ''),
-                                    ),
-                                  ],
                                 ),
-                              ))),
+                              ),
                             ],
                           ],
                         ],

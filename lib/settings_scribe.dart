@@ -57,8 +57,10 @@ class _SettingsScribeSectionState extends State<SettingsScribeSection> {
       // Obter token de autenticação do Firebase
       final idToken = await user.getIdToken();
       
+      // Obter a URL base dinâmica
+      final baseUrl = await ApiConfig.getCurrentUrl();
       final response = await http.get(
-        Uri.parse('$apiBaseUrl/scribetypes'),
+        Uri.parse('$baseUrl/scribetypes'),
         headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
       );
       if (response.statusCode == 200) {

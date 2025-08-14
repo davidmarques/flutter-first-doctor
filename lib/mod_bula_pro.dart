@@ -77,7 +77,9 @@ class _BulaProPageState extends State<BulaProPage> with SingleTickerProviderStat
         requestBody['medicineId2'] = _medicacoes[1];
       }
 
-      final url = Uri.parse('$apiBaseUrl/medicinequestion/${_userCountry ?? 'br'}');
+      // Obter a URL base dinâmica
+      final baseUrl = await ApiConfig.getCurrentUrl();
+      final url = Uri.parse('$baseUrl/medicinequestion/${_userCountry ?? 'br'}');
       final response = await http.post(
         url,
         body: json.encode(requestBody),
@@ -107,7 +109,9 @@ class _BulaProPageState extends State<BulaProPage> with SingleTickerProviderStat
       while (!done && mounted) {
         await Future.delayed(const Duration(seconds: 2));
         
-        final statusUrl = Uri.parse('$apiBaseUrl/medicinequestion/$taskhash');
+        // Obter a URL base dinâmica para o status
+        final baseUrl = await ApiConfig.getCurrentUrl();
+        final statusUrl = Uri.parse('$baseUrl/medicinequestion/$taskhash');
         final statusResp = await http.get(
           statusUrl,
           headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},

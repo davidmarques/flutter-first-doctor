@@ -146,8 +146,11 @@ class _MedSearchPageState extends State<MedSearchPage> {
   Future<Map<String, dynamic>> _fetchJournalsJson() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final idToken = await firebaseUser?.getIdToken();
+    
+    // Obter a URL base dinâmica
+    final baseUrl = await ApiConfig.getCurrentUrl();
     final response = await http.get(
-      Uri.parse('$apiBaseUrl/journals'),
+      Uri.parse('$baseUrl/journals'),
       headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
     );
     if (response.statusCode == 200) {
@@ -502,8 +505,11 @@ class _MedSearchPageState extends State<MedSearchPage> {
                                     try {
                                       final firebaseUser = FirebaseAuth.instance.currentUser;
                                       idToken = await firebaseUser?.getIdToken();
+                                      
+                                      // Obter a URL base dinâmica
+                                      final baseUrl = await ApiConfig.getCurrentUrl();
                                       final journalsResp = await http.get(
-                                        Uri.parse('$apiBaseUrl/journals'),
+                                        Uri.parse('$baseUrl/journals'),
                                         headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
                                       );
                                       final journalsJson = json.decode(journalsResp.body) as Map<String, dynamic>;
@@ -527,7 +533,9 @@ class _MedSearchPageState extends State<MedSearchPage> {
                                       return;
                                     }
 
-                                    final url = Uri.parse('$apiBaseUrl/medsearch');
+                                    // Obter a URL base dinâmica
+                                    final baseUrl = await ApiConfig.getCurrentUrl();
+                                    final url = Uri.parse('$baseUrl/medsearch');
                                     final postBody = json.encode({
                                       'request': questionText.trim(),
                                       'daterange': {
@@ -564,7 +572,10 @@ class _MedSearchPageState extends State<MedSearchPage> {
                                       bool done = false;
                                       while (!done && mounted) {
                                         await Future.delayed(const Duration(seconds: 2));
-                                        final statusUrl = Uri.parse('$apiBaseUrl/medsearch/$taskhash');
+                                        
+                                        // Obter a URL base dinâmica para o status
+                                        final baseUrl = await ApiConfig.getCurrentUrl();
+                                        final statusUrl = Uri.parse('$baseUrl/medsearch/$taskhash');
                                         final statusResp = await http.get(
                                           statusUrl,
                                           headers: idToken != null ? { 'Authorization': 'Bearer $idToken' } : {},
