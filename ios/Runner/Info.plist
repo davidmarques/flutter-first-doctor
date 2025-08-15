@@ -8,6 +8,18 @@
 		<string>First Doctor</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
+		<string>962139125344-5p3iq5ope80dh4ouhdm9ho6t9rdg7fp0.apps.googleusercontent.com</string>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.962139125344-5p3iq5ope80dh4ouhdm9ho6t9rdg7fp0</string>
+				</array>
+			</dict>
+		</array>
 		<key>CFBundleIdentifier</key>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 		<key>CFBundleInfoDictionaryVersion</key>
