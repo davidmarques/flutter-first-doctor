@@ -15,6 +15,15 @@ workflows:
           plutil -p ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
           echo "Bundle ID do app (Info.plist):"
           /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" ios/Runner/Info.plist
+          mkdir -p ios/certs
+          # Criar P12
+          echo "$IOS_CERTIFICATE" | base64 --decode > ios/certs/certificate.p12
+          # Criar Provisioning Profile
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > ios/certs/profile.mobileprovision
+          security create-keychain -p "" build.keychain
+          security import ios/certs/certificate.p12 -k ~/Library/Keychains/build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -s ~/Library/Keychains/build.keychain
+          security default-keychain -s ~/Library/Keychains/build.keychain
 
       - name: Install Flutter dependencies
         script: flutter pub get
@@ -25,7 +34,7 @@ workflows:
           pod install
 
       - name: Build iOS Release IPA
-        script: flutter build ipa --release --export-options-plist ios/ExportOptions.plist
+        script: flutter build ipa --release --export-options-plist ios/ExportOptions.plist --codesign-identity "iPhone Distribution" --provisioning-profile ios/certs/profile.mobileprovision
 
       - name: Verify Bundle ID in built IPA
         script: |
