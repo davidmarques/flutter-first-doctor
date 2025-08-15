@@ -10,18 +10,21 @@ workflows:
     scripts:
       - name: Configurar certificados e provisioning profile
         script: |
+          set -e
+          echo $IOS_FIREBASE_SECRET > $CM_BUILD_DIR/ios/Runner/GoogleService-Info.plist
+          
           mkdir -p ios/certs
           # Criar P12
-          echo o conteudo do certificado bruto "$IOS_CERTIFICATE"
-          echo "$IOS_CERTIFICATE" | base64 --decode > ios/certs/certificate.p12
+          echo o conteudo do certificado bruto $IOS_CERTIFICATE
+          echo $IOS_CERTIFICATE | base64 --decode > ios/certs/certificate.p12
           # Criar Provisioning Profile
-          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > ios/certs/profile.mobileprovision
-          
+          echo $IOS_PROVISIONING_PROFILE | base64 --decode > ios/certs/profile.mobileprovision
+
           # Criar e desbloquear keychain
           security create-keychain -p "" build.keychain
           security import ios/certs/certificate.p12 \
             -k ~/Library/Keychains/build.keychain \
-            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -P $IOS_CERTIFICATE_PASSWORD \
             -A
           security list-keychains -s ~/Library/Keychains/build.keychain
           security default-keychain -s ~/Library/Keychains/build.keychain
