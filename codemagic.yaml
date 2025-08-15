@@ -29,8 +29,20 @@ workflows:
           cd ios
           pod install
 
-      - name: Build iOS Release
-        #script: flutter build ios --simulator --no-codesign
-        flutter build ios --release
+      - name: Build iOS Release IPA
+        script: |
+          flutter build ios --release \
+            --no-codesign=false \
+            --flavor production \
+            # opcional: definir o team
+            # --build-name=1.0.0 \
+            # --build-number=1
+
+      - name: Verify Bundle ID in built IPA
+        script: |
+          IPA_PATH="build/ios/ipa/Runner.ipa"
+          unzip -q $IPA_PATH -d tmp_ipa
+          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" tmp_ipa/Payload/Runner.app/Info.plist
+
     artifacts:
-      - build/ios/iphonesimulator/Runner.app
+      - build/ios/ipa/Runner.ipa
