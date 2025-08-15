@@ -25,7 +25,7 @@ workflows:
           pod install
 
       - name: Build iOS Release IPA
-        script: flutter build ios --release
+        script: flutter build ipa --release --export-options-plist ios/ExportOptions.plist
 
       - name: Verify Bundle ID in built IPA
         script: |
