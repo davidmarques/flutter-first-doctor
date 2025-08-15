@@ -10,9 +10,9 @@ workflows:
       - name: Load Firebase configuration
         script: |
           #!/usr/bin/env sh
-          #set -e
-          #echo $IOS_FIREBASE_SECRET > $CM_BUILD_DIR/ios/Runner/GoogleService-Info.plist
           set -e
+          echo $IOS_FIREBASE_SECRET > $CM_BUILD_DIR/ios/Runner/GoogleService-Info.plist
+
           echo "Usando GoogleService-Info.plist:"
           cat ios/Runner/GoogleService-Info.plist | grep PROJECT_ID || true
           plutil -p ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
