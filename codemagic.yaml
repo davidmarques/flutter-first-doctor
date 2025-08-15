@@ -31,12 +31,7 @@ workflows:
 
       - name: Build iOS Release IPA
         script: |
-          flutter build ios --release \
-            --no-codesign=false \
-            --flavor production \
-            # opcional: definir o team
-            # --build-name=1.0.0 \
-            # --build-number=1
+          flutter build ios --release
 
       - name: Verify Bundle ID in built IPA
         script: |
