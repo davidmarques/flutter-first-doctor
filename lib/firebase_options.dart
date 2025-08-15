@@ -66,6 +66,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '962139125344',
     projectId: 'firstdoctor-br',
     storageBucket: 'firstdoctor-br.firebasestorage.app',
+    androidClientId: '962139125344-7aci0tnfa767bq517oeqr7togp6lu92n.apps.googleusercontent.com',
+    iosClientId: '962139125344-5p3iq5ope80dh4ouhdm9ho6t9rdg7fp0.apps.googleusercontent.com',
     iosBundleId: 'com.octocm.firstdoctor',
   );
 
