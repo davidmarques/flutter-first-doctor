@@ -24,6 +24,11 @@ workflows:
           security import ios/certs/certificate.p12 -k ~/Library/Keychains/build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security list-keychains -s ~/Library/Keychains/build.keychain
           security default-keychain -s ~/Library/Keychains/build.keychain
+          echo "Certificados disponíveis no keychain:"
+          security find-identity -v -p codesigning ~/Library/Keychains/build.keychain
+          # Verificar provisioning profiles
+          echo "Provisioning profiles instalados:"
+          ls ~/Library/MobileDevice/Provisioning\ Profiles/
 
       - name: Install Flutter dependencies
         script: flutter pub get
