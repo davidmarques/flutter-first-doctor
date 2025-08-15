@@ -6,6 +6,12 @@ workflows:
       xcode: 16.2
       groups:
         - firebase-ios
+
+    ios:
+      code_signing:
+        distribution_certificate: codemagic-teste-key-firstdoctor
+        provisioning_profile: firstdoctor-appstore-profile
+
     scripts:
       - name: Load Firebase configuration
         script: |
