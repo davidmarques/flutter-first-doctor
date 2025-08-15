@@ -10,8 +10,16 @@ workflows:
       - name: Load Firebase configuration
         script: |
           #!/usr/bin/env sh
+          #set -e
+          #echo $IOS_FIREBASE_SECRET > $CM_BUILD_DIR/ios/Runner/GoogleService-Info.plist
           set -e
-          echo $IOS_FIREBASE_SECRET > $CM_BUILD_DIR/ios/Runner/GoogleService-Info.plist
+          echo "Usando GoogleService-Info.plist:"
+          cat ios/Runner/GoogleService-Info.plist | grep PROJECT_ID || true
+          plutil -replace PROJECT_ID -string "com.octocm.firstdoctor" ios/Runner/GoogleService-Info.plist
+          cat ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
+
+
+
 
       - name: Install Flutter dependencies
         script: flutter pub get
