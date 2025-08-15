@@ -1,37 +1,64 @@
 workflows:
-  flutter-ios-simulator:
-    name: Flutter iOS Simulator
+  flutter-ios-testflight:
+    name: Flutter iOS TestFlight
     environment:
       flutter: 3.32.8
       xcode: 16.2
       groups:
         - firebase-ios
+
     scripts:
-      - name: Load Firebase configuration
+      - name: Configurar certificados e provisioning profile
         script: |
-          #!/usr/bin/env sh
-          #set -e
-          #echo $IOS_FIREBASE_SECRET > $CM_BUILD_DIR/ios/Runner/GoogleService-Info.plist
-          set -e
-          echo "$IOS_CERTIFICATE_PASSWORD"
-          echo "Usando GoogleService-Info.plist:"
-          cat ios/Runner/GoogleService-Info.plist | grep PROJECT_ID || true
-          plutil -p ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
-          plutil -replace PROJECT_ID -string "com.octocm.firstdoctor" ios/Runner/GoogleService-Info.plist
-          cat ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
-          plutil -p ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
+          mkdir -p ios/certs
+          # Criar P12
+          echo a suposta senha "IOS_CERTIFICATE_PASSWORD"
+          echo a suposta senha IOS_CERTIFICATE_PASSWORD
+          
+          echo o conteudo do certificado bruto "$IOS_CERTIFICATE"
+          echo "$IOS_CERTIFICATE" | base64 --decode > ios/certs/certificate.p12
+          # Criar Provisioning Profile
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > ios/certs/profile.mobileprovision
+          
+          # Criar e desbloquear keychain
+          security create-keychain -p "" build.keychain
+          security import ios/certs/certificate.p12 \
+            -k ~/Library/Keychains/build.keychain \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A
+          security list-keychains -s ~/Library/Keychains/build.keychain
+          security default-keychain -s ~/Library/Keychains/build.keychain
+          security unlock-keychain -p "" ~/Library/Keychains/build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -k "" ~/Library/Keychains/build.keychain
 
+          echo "Certificados disponíveis no keychain:"
+          security find-identity -v -p codesigning
 
+          # Instalar provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          PROFILE_UUID=$(grep -a -E -o "([A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12})" ios/certs/profile.mobileprovision | head -1)
+          cp ios/certs/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
 
-      - name: Install Flutter dependencies
+          echo "Provisioning profiles instalados:"
+          ls ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Instalar dependências Flutter
         script: flutter pub get
 
-      - name: Install CocoaPods
+      - name: Instalar CocoaPods
         script: |
           cd ios
           pod install
 
-      - name: Build iOS Simulator
-        script: flutter build ios --simulator --no-codesign
+      - name: Build iOS Release IPA
+        script: flutter build ipa --release --export-options-plist ios/ExportOptions.plist
+
+      - name: Verificar Bundle ID no IPA
+        script: |
+          IPA_PATH="build/ios/ipa/Runner.ipa"
+          unzip -q $IPA_PATH -d tmp_ipa
+          echo "Bundle ID dentro do .ipa:"
+          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" tmp_ipa/Payload/Runner.app/Info.plist
+
     artifacts:
-      - build/ios/iphonesimulator/Runner.app
+      - build/ios/ipa/Runner.ipa
