@@ -7,21 +7,12 @@ workflows:
       groups:
         - firebase-ios
 
-    # Code signing para gerar .ipa assinado
-
-    code_signing:
-      distribution_certificate: codemagic-teste-key-firstdoctor
-      provisioning_profile: firstdoctor-appstore-profile
-
     scripts:
       - name: Load Firebase configuration
         script: |
-          # Adiciona o conteúdo do GoogleService-Info.plist
           echo "$IOS_FIREBASE_SECRET" > ios/Runner/GoogleService-Info.plist
-
           echo "GoogleService-Info.plist project ID:"
           plutil -p ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
-
           echo "Bundle ID do app (Info.plist):"
           /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" ios/Runner/Info.plist
 
