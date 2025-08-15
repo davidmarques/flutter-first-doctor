@@ -16,6 +16,8 @@ workflows:
           echo "Usando GoogleService-Info.plist:"
           cat ios/Runner/GoogleService-Info.plist | grep PROJECT_ID || true
           plutil -p ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
+          echo "Usando Bundle ID:"
+          plutil -p ios/Runner/Info.plist | grep BUNDLE_ID
 
 
       - name: Install Flutter dependencies
