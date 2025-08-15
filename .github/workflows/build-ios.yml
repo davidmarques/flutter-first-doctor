@@ -49,17 +49,13 @@ jobs:
           mkdir -p ~/private_keys
           echo "$ASC_API_KEY_P8" | base64 --decode > ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
 
-      # Build do IPA
-      - name: Build IPA
-        run: |
-          flutter build ipa --release \
-            --export-options-plist=ios/ExportOptions.plist
+      # Instala o Fastlane
+      - name: Install fastlane
+        run: sudo gem install fastlane -NV
 
-      # Envia pro TestFlight
-      - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight@v1
-        with:
-          app-path: build/ios/ipa/*.ipa
-          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
-          api-key-id: ${{ secrets.ASC_API_KEY_ID }}
-          api-private-key: ${{ secrets.ASC_API_KEY_P8 }}
+      # Envia pro TestFlight via Fastlane
+      - name: Upload to TestFlight via fastlane
+        run: |
+          fastlane pilot upload \
+            --ipa "build/ios/ipa/$(ls build/ios/ipa | head -n 1)" \
+            --api_key_path ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
