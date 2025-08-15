@@ -8,32 +8,41 @@ workflows:
         - firebase-ios
 
     scripts:
-      - name: Load Firebase configuration
+      - name: Configurar certificados e provisioning profile
         script: |
-          echo "$IOS_FIREBASE_SECRET" > ios/Runner/GoogleService-Info.plist
-          echo "GoogleService-Info.plist project ID:"
-          plutil -p ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
-          echo "Bundle ID do app (Info.plist):"
-          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" ios/Runner/Info.plist
           mkdir -p ios/certs
           # Criar P12
+          echo o conteudo do certificado bruto "$IOS_CERTIFICATE"
           echo "$IOS_CERTIFICATE" | base64 --decode > ios/certs/certificate.p12
           # Criar Provisioning Profile
           echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > ios/certs/profile.mobileprovision
+          
+          # Criar e desbloquear keychain
           security create-keychain -p "" build.keychain
-          security import ios/certs/certificate.p12 -k ~/Library/Keychains/build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security import ios/certs/certificate.p12 \
+            -k ~/Library/Keychains/build.keychain \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A
           security list-keychains -s ~/Library/Keychains/build.keychain
           security default-keychain -s ~/Library/Keychains/build.keychain
+          security unlock-keychain -p "" ~/Library/Keychains/build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -k "" ~/Library/Keychains/build.keychain
+
           echo "Certificados disponíveis no keychain:"
-          security find-identity -v -p codesigning ~/Library/Keychains/build.keychain
-          # Verificar provisioning profiles
+          security find-identity -v -p codesigning
+
+          # Instalar provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          PROFILE_UUID=$(grep -a -E -o "([A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12})" ios/certs/profile.mobileprovision | head -1)
+          cp ios/certs/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
+
           echo "Provisioning profiles instalados:"
           ls ~/Library/MobileDevice/Provisioning\ Profiles/
 
-      - name: Install Flutter dependencies
+      - name: Instalar dependências Flutter
         script: flutter pub get
 
-      - name: Install CocoaPods
+      - name: Instalar CocoaPods
         script: |
           cd ios
           pod install
@@ -41,7 +50,7 @@ workflows:
       - name: Build iOS Release IPA
         script: flutter build ipa --release --export-options-plist ios/ExportOptions.plist
 
-      - name: Verify Bundle ID in built IPA
+      - name: Verificar Bundle ID no IPA
         script: |
           IPA_PATH="build/ios/ipa/Runner.ipa"
           unzip -q $IPA_PATH -d tmp_ipa
