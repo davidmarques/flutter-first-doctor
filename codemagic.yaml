@@ -8,10 +8,10 @@ workflows:
         - firebase-ios
 
     # Code signing para gerar .ipa assinado
-    ios:
-      code_signing:
-        distribution_certificate: codemagic-teste-key-firstdoctor
-        provisioning_profile: firstdoctor-appstore-profile
+
+    code_signing:
+      distribution_certificate: codemagic-teste-key-firstdoctor
+      provisioning_profile: firstdoctor-appstore-profile
 
     scripts:
       - name: Load Firebase configuration
