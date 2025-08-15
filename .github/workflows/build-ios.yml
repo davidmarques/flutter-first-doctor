@@ -1,0 +1,65 @@
+name: Build iOS and Upload to TestFlight
+
+on:
+  workflow_dispatch: # Executa manualmente
+  push:
+    branches:
+      - main # ou a branch que você quer que dispare o build
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Configura o keychain temporário para assinatura
+      - name: Setup keychain
+        run: |
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings build.keychain
+
+      # Importa o certificado P12
+      - name: Import certificate
+        run: |
+          echo "$IOS_CERTIFICATE" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm certificate.p12
+
+      # Adiciona o perfil de provisionamento
+      - name: Add provisioning profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      # Configura a chave API para App Store Connect
+      - name: Create API key file
+        run: |
+          mkdir -p ~/private_keys
+          echo "$ASC_API_KEY_P8" | base64 --decode > ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
+
+      # Build do IPA
+      - name: Build IPA
+        run: |
+          flutter build ipa --release \
+            --export-options-plist=ios/ExportOptions.plist
+
+      # Envia pro TestFlight
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight@v1
+        with:
+          app-path: build/ios/ipa/*.ipa
+          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+          api-key-id: ${{ secrets.ASC_API_KEY_ID }}
+          api-private-key: ${{ secrets.ASC_API_KEY_P8 }}
