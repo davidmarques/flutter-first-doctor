@@ -1,12 +1,13 @@
 workflows:
-  flutter-ios-simulator:
-    name: Flutter iOS Simulator
+  flutter-ios-testflight:
+    name: Flutter iOS TestFlight
     environment:
       flutter: 3.32.8
       xcode: 16.2
       groups:
         - firebase-ios
 
+    # Code signing para gerar .ipa assinado
     ios:
       code_signing:
         distribution_certificate: codemagic-teste-key-firstdoctor
@@ -15,17 +16,14 @@ workflows:
     scripts:
       - name: Load Firebase configuration
         script: |
-          #!/usr/bin/env sh
-          set -e
-          echo $IOS_FIREBASE_SECRET > $CM_BUILD_DIR/ios/Runner/GoogleService-Info.plist
+          # Adiciona o conteúdo do GoogleService-Info.plist
+          echo "$IOS_FIREBASE_SECRET" > ios/Runner/GoogleService-Info.plist
 
-          echo "Usando GoogleService-Info.plist:"
-          cat ios/Runner/GoogleService-Info.plist | grep PROJECT_ID || true
+          echo "GoogleService-Info.plist project ID:"
           plutil -p ios/Runner/GoogleService-Info.plist | grep PROJECT_ID
-          echo "Usando Bundle ID:"
-          plutil -p ios/Runner/Info.plist | grep BUNDLE_ID
-          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "ios/Runner/Info.plist"
 
+          echo "Bundle ID do app (Info.plist):"
+          /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" ios/Runner/Info.plist
 
       - name: Install Flutter dependencies
         script: flutter pub get
@@ -36,13 +34,13 @@ workflows:
           pod install
 
       - name: Build iOS Release IPA
-        script: |
-          flutter build ios --release
+        script: flutter build ios --release
 
       - name: Verify Bundle ID in built IPA
         script: |
           IPA_PATH="build/ios/ipa/Runner.ipa"
           unzip -q $IPA_PATH -d tmp_ipa
+          echo "Bundle ID dentro do .ipa:"
           /usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" tmp_ipa/Payload/Runner.app/Info.plist
 
     artifacts:
