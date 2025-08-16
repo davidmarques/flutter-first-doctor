@@ -26,8 +26,9 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks!
-  use_modular_headers!
+  # Frameworks estáticos: compatível com Firebase e rápido no link
+  use_frameworks! :linkage => :static
+  # ⚠️ Removemos use_modular_headers! (costuma quebrar com Firebase e amigos)
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
@@ -37,8 +38,22 @@ target 'Runner' do
 end
 
 post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-  end
-end
+  # Regras para TODOS os pods
+  installer.pods_project.targets.each do |t|
+    t.build_configurations.each do |config|
+      # Sobe o target mínimo para 13.0 (evita a enxurrada de warnings e incompatibilidades)
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
 
+      # Xcode 16.x traz Swift 6 por default; muitos pods (Firebase inclusive) ainda requerem Swift 5.10
+      config.build_settings['SWIFT_VERSION'] = '5.10'
+
+      # FirebaseCoreInternal usa 'internal import ...' → precisa desse feature flag
+      flags = config.build_settings['OTHER_SWIFT_FLAGS'] || '$(inherited)'
+      flags += ' -Xfrontend -enable-experimental-feature -Xfrontend AccessLevelOnImport'
+      config.build_settings['OTHER_SWIFT_FLAGS'] = flags
+    end
+  end
+
+  # Recomendado pelo Flutter para integração de Pods
+  flutter_additional_ios_build_settings(installer)
+end
