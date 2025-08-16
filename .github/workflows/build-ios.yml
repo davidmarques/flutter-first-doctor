@@ -54,7 +54,7 @@ jobs:
           ls -l ios/certs/certificate.p12
           file ios/certs/certificate.p12
 
-      # 4) Validar P12 com openssl e extrair PEMs (chave + cert) + converter chave p/ PKCS#8
+      # 4) Validar P12 e extrair chave/cert; converter chave p/ PKCS#8
       - name: Validate & extract from PKCS12
         run: |
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -nokeys -passin pass:"$IOS_CERTIFICATE_PASSWORD" >/dev/null
@@ -64,17 +64,11 @@ jobs:
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -nocerts -nodes -passin pass:"$IOS_CERTIFICATE_PASSWORD" -out ios/certs/key.pem
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -clcerts -nokeys -passin pass:"$IOS_CERTIFICATE_PASSWORD" -out ios/certs/cert.pem
 
-          # Converte chave p/ PKCS#8 sem criptografia (BEGIN PRIVATE KEY)
+          # Converte chave p/ PKCS#8 (BEGIN PRIVATE KEY)
           /usr/bin/openssl pkcs8 -topk8 -nocrypt -in ios/certs/key.pem -out ios/certs/key_pkcs8.pem
-
           chmod 600 ios/certs/key.pem ios/certs/key_pkcs8.pem ios/certs/cert.pem
 
-          echo "PEMs prontos:"
-          ls -l ios/certs/key.pem ios/certs/key_pkcs8.pem ios/certs/cert.pem
-          head -n 1 ios/certs/key_pkcs8.pem
-          head -n 1 ios/certs/cert.pem
-
-      # 5) Keychain e import (auto-detect) + fallback para DER se necessário
+      # 5) Keychain e import (auto-detect) + fallback DER p/ chave
       - name: Setup keychain and import key/cert
         run: |
           set -e
@@ -114,22 +108,54 @@ jobs:
               -T /usr/bin/security
           fi
 
-          # Dar acesso às tools da Apple
+          # Acesso para tools da Apple
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
           echo ">>> Identities disponíveis:"
           security find-identity -v -p codesigning build.keychain || true
 
-      # 6) Build IPA (usa seu ExportOptions.plist com method app-store e perfil correto)
-      - name: Build IPA
+      # 6) Cocoapods (gera ios/Runner.xcworkspace)
+      - name: Install CocoaPods and pod install
         run: |
-          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+          sudo gem install cocoapods -NV
+          cd ios
+          pod repo update
+          pod install
+          test -f Runner.xcworkspace/contents.xcworkspacedata && echo "Xcode workspace OK"
 
-      # 7) Fastlane
+      # 7) Extrair nome do Provisioning Profile e arquivar com xcodebuild
+      - name: Archive with xcodebuild (manual signing)
+        run: |
+          # Extrai o Name do .mobileprovision
+          PROFILE_NAME=$(/usr/bin/security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin)
+          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
+          echo "Usando PROFILE_NAME: $PROFILE_NAME"
+
+          # Arquiva (gera .xcarchive) com assinatura manual
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath build/Runner.xcarchive \
+            clean archive \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution"
+
+      # 8) Export IPA com ExportOptions.plist
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath build/ios/ipa
+          ls -l build/ios/ipa
+
+      # 9) Fastlane
       - name: Install fastlane
         run: sudo gem install fastlane -NV
 
-      # 8) Upload para TestFlight
+      # 10) Upload para TestFlight
       - name: Upload to TestFlight via fastlane
         run: |
           IPA_PATH="$(ls build/ios/ipa/*.ipa | head -n 1)"
