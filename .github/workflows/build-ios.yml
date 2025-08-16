@@ -16,95 +16,101 @@ jobs:
       ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
-      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
-      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-      IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}                 # P12 em Base64 (uma linha)
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }} # Ex.: vPNZskLS
+      IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }} # .mobileprovision em Base64
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
 
-
     steps:
-      # 1️⃣ Checkout do repositório
+      # 1) Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # 2️⃣ Setup Flutter (iOS-only)
+      # 2) Flutter para iOS
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.8' # ajuste se precisar
+          flutter-version: '3.32.8'   # ajuste se seu projeto usa outra
           channel: 'stable'
           architecture: 'arm64'
 
-      # 3️⃣ Instalar dependências
       - name: Install dependencies
         run: flutter pub get
 
-      # 4️⃣ Criar e desbloquear keychain
-      - name: Setup keychain
+      # 3) Preparar diretórios
+      - name: Prepare directories
         run: |
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
-          security default-keychain -s build.keychain
-      - name: Testar variável
-        run: |
-          echo "O valor é: $IOS_CERTIFICATE" # aqui vai aparecer ***
+          mkdir -p ios/certs
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          mkdir -p ~/private_keys
 
-      - name: Conferir tamanho do P12
+      # 4) Decodificar secrets (macOS usa base64 -D)
+      - name: Decode credentials
         run: |
-          echo "$IOS_CERTIFICATE" | base64 --decode > ios/certs/certificate.p12
+          # P12
+          printf "%s" "$IOS_CERTIFICATE" | base64 -D > ios/certs/certificate.p12
+          # Provisioning profile
+          printf "%s" "$IOS_PROVISIONING_PROFILE" | base64 -D > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          # App Store Connect API key (.p8)
+          printf "%s" "$ASC_API_KEY_P8" | base64 -D > ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
+          # Permissões restritas à chave
+          chmod 600 ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
+
+      # 5) Sanity checks (sem vazar conteúdo)
+      - name: Sanity checks (no secrets leak)
+        run: |
+          echo "PWD: $(pwd)"
+          echo "certificate.p12 size/type:"
           ls -l ios/certs/certificate.p12
           file ios/certs/certificate.p12
-      - name: Testar senha recebida
-        run: |
-          if [ -z "$IOS_CERTIFICATE_PASSWORD" ]; then
-            echo "Senha está vazia!"
-            exit 1
-          else
-            echo "Senha tem ${#IOS_CERTIFICATE_PASSWORD} caracteres."
-          fi
+          echo "profile.mobileprovision size/type:"
+          ls -l ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          file ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          echo "ASC API key present? $(test -s ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8 && echo yes || echo no)"
+          echo "P12 password length: ${#IOS_CERTIFICATE_PASSWORD}"
 
-      - name: Debug variáveis do ambiente (sem decodificar)
+      # 6) Validar P12 e senha ANTES do import (evita perder tempo)
+      - name: Validate PKCS12 password
         run: |
-          echo "IOS_CERTIFICATE (primeiros 100 chars):"
-          echo "${IOS_CERTIFICATE:0:100}"
-          echo
-          echo "IOS_CERTIFICATE_PASSWORD:"
-          echo "$IOS_CERTIFICATE_PASSWORD"
+          openssl pkcs12 -in ios/certs/certificate.p12 -nokeys -passin pass:"$IOS_CERTIFICATE_PASSWORD" >/dev/null
+          echo "P12 password OK (openssl validated)"
 
-      # 5️⃣ Importar certificado P12
-      - name: Import certificate
+      # 7) Keychain + import do certificado
+      - name: Setup keychain and import certificate
         run: |
-          printf "%s" "$IOS_CERTIFICATE" | base64 --decode > certificate.p12
-          security import certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          rm certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
 
-      # 6️⃣ Adicionar perfil de provisionamento
-      - name: Add provisioning profile
-        run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          printf "%s" "$IOS_PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          # Import do P12 (permite codesign e security usarem a chave)
+          security import ios/certs/certificate.p12 \
+            -k build.keychain \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
 
-      # 7️⃣ Criar arquivo da chave API da Apple
-      - name: Create API key file
-        run: |
-          mkdir -p ~/private_keys
-          printf "%s" "$ASC_API_KEY_P8" | base64 --decode > ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
+          # Dar permissão da chave privada ao codesign/security (alguns runners exigem)
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
-      # 8️⃣ Build do IPA
+          # Opcional: listar identidades para conferir que importou
+          security find-identity -v -p codesigning build.keychain || true
+
+      # 8) Build IPA (usa seu ExportOptions.plist)
       - name: Build IPA
         run: |
-          flutter build ipa --release \
-            --export-options-plist=ios/ExportOptions.plist
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
 
-      # 9️⃣ Instalar Fastlane
+      # 9) Fastlane
       - name: Install fastlane
         run: sudo gem install fastlane -NV
 
-      # 🔟 Upload para TestFlight via Fastlane
+      # 10) Upload para TestFlight via Fastlane
       - name: Upload to TestFlight via fastlane
         run: |
+          IPA_PATH="$(ls build/ios/ipa/*.ipa | head -n 1)"
+          echo "Uploading: $IPA_PATH"
           fastlane pilot upload \
-            --ipa "build/ios/ipa/$(ls build/ios/ipa | head -n 1)" \
+            --ipa "$IPA_PATH" \
             --api_key_path ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
