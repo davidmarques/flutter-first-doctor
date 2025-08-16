@@ -22,11 +22,9 @@ jobs:
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
 
     steps:
-      # 1) Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) Flutter para iOS
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -37,14 +35,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # 3) Preparar diretórios e decodificar credenciais
       - name: Prepare & decode credentials
         run: |
           mkdir -p ios/certs
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p ~/private_keys
 
-          # Decode (BSD base64 do macOS)
           printf "%s" "$IOS_CERTIFICATE" | base64 -D > ios/certs/certificate.p12
           printf "%s" "$IOS_PROVISIONING_PROFILE" | base64 -D > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
           printf "%s" "$ASC_API_KEY_P8" | base64 -D > ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
@@ -53,22 +49,19 @@ jobs:
           echo "P12 size/type:"
           ls -l ios/certs/certificate.p12
           file ios/certs/certificate.p12
+          echo "mobileprovision size/type:"
+          ls -l ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          file ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
 
-      # 4) Validar P12 e extrair chave/cert; converter chave p/ PKCS#8
       - name: Validate & extract from PKCS12
         run: |
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -nokeys -passin pass:"$IOS_CERTIFICATE_PASSWORD" >/dev/null
           echo "P12 password OK (openssl)"
-
-          # Extrai chave privada e certificado
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -nocerts -nodes -passin pass:"$IOS_CERTIFICATE_PASSWORD" -out ios/certs/key.pem
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -clcerts -nokeys -passin pass:"$IOS_CERTIFICATE_PASSWORD" -out ios/certs/cert.pem
-
-          # Converte chave p/ PKCS#8 (BEGIN PRIVATE KEY)
           /usr/bin/openssl pkcs8 -topk8 -nocrypt -in ios/certs/key.pem -out ios/certs/key_pkcs8.pem
           chmod 600 ios/certs/key.pem ios/certs/key_pkcs8.pem ios/certs/cert.pem
 
-      # 5) Keychain e import (auto-detect) + fallback DER p/ chave
       - name: Setup keychain and import key/cert
         run: |
           set -e
@@ -108,13 +101,11 @@ jobs:
               -T /usr/bin/security
           fi
 
-          # Acesso para tools da Apple
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
           echo ">>> Identities disponíveis:"
           security find-identity -v -p codesigning build.keychain || true
 
-      # 6) Cocoapods (gera ios/Runner.xcworkspace)
       - name: Install CocoaPods and pod install
         run: |
           sudo gem install cocoapods -NV
@@ -123,15 +114,38 @@ jobs:
           pod install
           test -f Runner.xcworkspace/contents.xcworkspacedata && echo "Xcode workspace OK"
 
-      # 7) Extrair nome do Provisioning Profile e arquivar com xcodebuild
+      # 🔧 NOVO: parse do .mobileprovision em arquivo (sem pipe) + validação rígida
+      - name: Parse provisioning profile
+        run: |
+          PROFILE_PLIST=/tmp/profile.plist
+          /usr/bin/security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision > "$PROFILE_PLIST"
+
+          echo "Validando profile.plist..."
+          test -s "$PROFILE_PLIST" || (echo "profile.plist vazio! Verifique IOS_PROVISIONING_PROFILE (base64)." && exit 1)
+
+          # Converte para XML só pra garantir leitura robusta
+          /usr/bin/plutil -convert xml1 "$PROFILE_PLIST"
+
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST" 2>/dev/null || true)
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PROFILE_PLIST" 2>/dev/null || true)
+          echo "PROFILE_NAME=$PROFILE_NAME"
+          echo "PROFILE_UUID=$PROFILE_UUID"
+
+          if [ -z "$PROFILE_NAME" ] || [ -z "$PROFILE_UUID" ]; then
+            echo "Falha ao extrair Name/UUID do provisioning profile."
+            echo "Head do profile.plist:"
+            head -n 40 "$PROFILE_PLIST" || true
+            exit 1
+          fi
+
+          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
+          echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
+
       - name: Archive with xcodebuild (manual signing)
         run: |
-          # Extrai o Name do .mobileprovision
-          PROFILE_NAME=$(/usr/bin/security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin)
-          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
           echo "Usando PROFILE_NAME: $PROFILE_NAME"
+          echo "Usando PROFILE_UUID:  $PROFILE_UUID"
 
-          # Arquiva (gera .xcarchive) com assinatura manual
           xcodebuild -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
@@ -139,10 +153,10 @@ jobs:
             clean archive \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            PROVISIONING_PROFILE="$PROFILE_UUID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution"
 
-      # 8) Export IPA com ExportOptions.plist
       - name: Export IPA
         run: |
           xcodebuild -exportArchive \
@@ -151,11 +165,9 @@ jobs:
             -exportPath build/ios/ipa
           ls -l build/ios/ipa
 
-      # 9) Fastlane
       - name: Install fastlane
         run: sudo gem install fastlane -NV
 
-      # 10) Upload para TestFlight
       - name: Upload to TestFlight via fastlane
         run: |
           IPA_PATH="$(ls build/ios/ipa/*.ipa | head -n 1)"
