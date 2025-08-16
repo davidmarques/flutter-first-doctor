@@ -15,13 +15,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug variáveis do ambiente (sem decodificar)
-        run: |
-          echo "IOS_CERTIFICATE (primeiros 100 chars):"
-          echo "${IOS_CERTIFICATE:0:100}"
-          echo
-          echo "IOS_CERTIFICATE_PASSWORD:"
-          echo "$IOS_CERTIFICATE_PASSWORD"
 
       # 2️⃣ Setup Flutter (iOS-only)
       - name: Setup Flutter
@@ -42,6 +35,14 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
           security default-keychain -s build.keychain
+
+      - name: Debug variáveis do ambiente (sem decodificar)
+        run: |
+          echo "IOS_CERTIFICATE (primeiros 100 chars):"
+          echo "${IOS_CERTIFICATE:0:100}"
+          echo
+          echo "IOS_CERTIFICATE_PASSWORD:"
+          echo "$IOS_CERTIFICATE_PASSWORD"
 
       # 5️⃣ Importar certificado P12
       - name: Import certificate
