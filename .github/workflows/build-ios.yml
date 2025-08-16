@@ -92,9 +92,16 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security find-identity -v -p codesigning build.keychain || true
 
+      # === CocoaPods 1.13.0 (compatível com Flutter 3.32.x) ===
+      - name: Use CocoaPods 1.13.0
+        run: |
+          sudo gem uninstall cocoapods -aIx || true
+          sudo gem install cocoapods -v 1.13.0 -NV
+          pod --version
+
       - name: Install CocoaPods and pod install
         run: |
-          sudo gem install cocoapods -NV
+          export COCOAPODS_DISABLE_STATS=true
           cd ios
           pod repo update
           pod install
@@ -131,4 +138,27 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" ios/ExportOptions.plist || /usr/libexec/PlistBuddy -c "Add :teamID string $APPLE_TEAM_ID" ios/ExportOptions.plist
           /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ios/ExportOptions.plist || true
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ios/ExportOptions.plist
-          /usr/libexec/PlistBud
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_NAME" ios/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :method app-store" ios/ExportOptions.plist || /usr/libexec/PlistBuddy -c "Add :method string app-store" ios/ExportOptions.plist
+          # opcional reforçar o certificado:
+          /usr/libexec/PlistBuddy -c "Set :signingCertificate Apple Distribution" ios/ExportOptions.plist || /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Distribution" ios/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Print" ios/ExportOptions.plist
+
+      - name: Export IPA (signed)
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath build/ios/ipa
+          ls -l build/ios/ipa
+
+      - name: Install fastlane
+        run: sudo gem install fastlane -NV
+
+      - name: Upload to TestFlight via fastlane
+        run: |
+          IPA_PATH="$(ls build/ios/ipa/*.ipa | head -n 1)"
+          echo "Uploading: $IPA_PATH"
+          fastlane pilot upload \
+            --ipa "$IPA_PATH" \
+            --api_key_path ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
