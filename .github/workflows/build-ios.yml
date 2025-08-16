@@ -92,20 +92,28 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security find-identity -v -p codesigning build.keychain || true
 
-      # === CocoaPods 1.13.0 (compatível com Flutter 3.32.x) ===
-      - name: Use CocoaPods 1.13.0
+
+
+      # === CocoaPods 1.13.0 + activesupport 7.0.8 (compatível com Flutter 3.32.x) ===
+      - name: Use CocoaPods 1.13.0 with ActiveSupport 7.0.8
         run: |
           sudo gem uninstall cocoapods -aIx || true
+          sudo gem uninstall activesupport -aIx || true
+          sudo gem install activesupport -v 7.0.8 -NV
           sudo gem install cocoapods -v 1.13.0 -NV
           pod --version
+          ruby -v
+          gem list activesupport
 
       - name: Install CocoaPods and pod install
         run: |
           export COCOAPODS_DISABLE_STATS=true
           cd ios
-          pod repo update
-          pod install
+          pod install --repo-update
           test -f Runner.xcworkspace/contents.xcworkspacedata && echo "Xcode workspace OK"
+
+
+
 
       - name: Parse provisioning profile
         run: |
