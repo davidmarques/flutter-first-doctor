@@ -15,6 +15,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Debug variáveis do ambiente (sem decodificar)
+        run: |
+          echo "IOS_CERTIFICATE (primeiros 100 chars):"
+          echo "${IOS_CERTIFICATE:0:100}"
+          echo
+          echo "IOS_CERTIFICATE_PASSWORD:"
+          echo "$IOS_CERTIFICATE_PASSWORD"
+
       # 2️⃣ Setup Flutter (iOS-only)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
