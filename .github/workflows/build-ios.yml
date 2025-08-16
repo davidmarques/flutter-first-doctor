@@ -46,10 +46,8 @@ jobs:
           printf "%s" "$ASC_API_KEY_P8" | base64 -D > ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
           chmod 600 ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
 
-          echo "P12 size/type:"
           ls -l ios/certs/certificate.p12
           file ios/certs/certificate.p12
-          echo "mobileprovision size/type:"
           ls -l ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
           file ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
 
@@ -70,13 +68,12 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
 
-          echo ">>> Importando CHAVE (PKCS#8 PEM)"
+          # Chave (PKCS#8 PEM) -> se falhar, tenta DER
           if ! security import ios/certs/key_pkcs8.pem \
                 -k build.keychain \
                 -A \
                 -T /usr/bin/codesign \
                 -T /usr/bin/security; then
-            echo "Import PEM falhou; tentando DER pkcs8..."
             /usr/bin/openssl pkcs8 -topk8 -nocrypt -in ios/certs/key_pkcs8.pem -outform DER -out ios/certs/key_pkcs8.der
             security import ios/certs/key_pkcs8.der \
               -k build.keychain \
@@ -86,13 +83,12 @@ jobs:
               -T /usr/bin/security
           fi
 
-          echo ">>> Importando CERTIFICADO (PEM)"
+          # Certificado (PEM) auto
           if ! security import ios/certs/cert.pem \
                 -k build.keychain \
                 -A \
                 -T /usr/bin/codesign \
                 -T /usr/bin/security; then
-            echo "Import PEM falhou; tentando pemseq..."
             security import ios/certs/cert.pem \
               -k build.keychain \
               -A \
@@ -102,8 +98,6 @@ jobs:
           fi
 
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-
-          echo ">>> Identities disponíveis:"
           security find-identity -v -p codesigning build.keychain || true
 
       - name: Install CocoaPods and pod install
@@ -114,49 +108,50 @@ jobs:
           pod install
           test -f Runner.xcworkspace/contents.xcworkspacedata && echo "Xcode workspace OK"
 
-      # 🔧 NOVO: parse do .mobileprovision em arquivo (sem pipe) + validação rígida
+      # Extrai PROFILE_NAME/UUID do .mobileprovision
       - name: Parse provisioning profile
         run: |
           PROFILE_PLIST=/tmp/profile.plist
           /usr/bin/security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision > "$PROFILE_PLIST"
-
-          echo "Validando profile.plist..."
-          test -s "$PROFILE_PLIST" || (echo "profile.plist vazio! Verifique IOS_PROVISIONING_PROFILE (base64)." && exit 1)
-
-          # Converte para XML só pra garantir leitura robusta
           /usr/bin/plutil -convert xml1 "$PROFILE_PLIST"
-
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST" 2>/dev/null || true)
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PROFILE_PLIST" 2>/dev/null || true)
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST")
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PROFILE_PLIST")
           echo "PROFILE_NAME=$PROFILE_NAME"
           echo "PROFILE_UUID=$PROFILE_UUID"
-
-          if [ -z "$PROFILE_NAME" ] || [ -z "$PROFILE_UUID" ]; then
-            echo "Falha ao extrair Name/UUID do provisioning profile."
-            echo "Head do profile.plist:"
-            head -n 40 "$PROFILE_PLIST" || true
-            exit 1
-          fi
-
           echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
           echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
 
-      - name: Archive with xcodebuild (manual signing)
+      # Patch no ExportOptions.plist para casar TeamID e Provisioning Profile
+      - name: Patch ExportOptions.plist
         run: |
-          echo "Usando PROFILE_NAME: $PROFILE_NAME"
-          echo "Usando PROFILE_UUID:  $PROFILE_UUID"
+          /usr/bin/plutil -convert xml1 ios/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" ios/ExportOptions.plist || /usr/libexec/PlistBuddy -c "Add :teamID string $APPLE_TEAM_ID" ios/ExportOptions.plist
+          # provisioningProfiles dict
+          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ios/ExportOptions.plist >/dev/null 2>&1; then
+            /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ios/ExportOptions.plist || true
+          fi
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ios/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_NAME" ios/ExportOptions.plist
+          # method app-store
+          /usr/libexec/PlistBuddy -c "Set :method app-store" ios/ExportOptions.plist || /usr/libexec/PlistBuddy -c "Add :method string app-store" ios/ExportOptions.plist
 
+          echo "ExportOptions.plist final:"
+          /usr/libexec/PlistBuddy -c "Print" ios/ExportOptions.plist
+
+      # ARCHIVE sem assinatura (evita empurrar profile pros Pods)
+      - name: Archive (no signing)
+        run: |
           xcodebuild -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
             -archivePath build/Runner.xcarchive \
             clean archive \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-            PROVISIONING_PROFILE="$PROFILE_UUID" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution"
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
 
+      # Export IPA (assina aqui com o ExportOptions.plist)
       - name: Export IPA
         run: |
           xcodebuild -exportArchive \
