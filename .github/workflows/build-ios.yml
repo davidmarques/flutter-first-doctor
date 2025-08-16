@@ -163,10 +163,26 @@ jobs:
       - name: Install fastlane
         run: sudo gem install fastlane -NV
 
+      # 👇 NOVO: cria o JSON que o fastlane espera (a partir do .p8 + envs)
+      - name: Build App Store Connect API key JSON
+        run: |
+          python3 - <<'PY'
+          import os, json, pathlib
+          kid = os.environ['ASC_API_KEY_ID']
+          iss = os.environ['ASC_ISSUER_ID']
+          p8_path = pathlib.Path.home() / f"private_keys/AuthKey_{kid}.p8"
+          key = p8_path.read_text()
+          out = pathlib.Path.home() / "private_keys/asc_api_key.json"
+          out.write_text(json.dumps({"key_id": kid, "issuer_id": iss, "key": key}))
+          print("Wrote", out)
+          PY
+          ls -l ~/private_keys/asc_api_key.json
+
+      # 👇 Usa o JSON (não o .p8) no pilot
       - name: Upload to TestFlight via fastlane
         run: |
           IPA_PATH="$(ls build/ios/ipa/*.ipa | head -n 1)"
           echo "Uploading: $IPA_PATH"
           fastlane pilot upload \
             --ipa "$IPA_PATH" \
-            --api_key_path ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
+            --api_key_path ~/private_keys/asc_api_key.json
