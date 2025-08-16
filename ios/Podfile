@@ -37,23 +37,21 @@ target 'Runner' do
   end
 end
 
+
 post_install do |installer|
-  # Regras para TODOS os pods
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |config|
-      # Sobe o target mínimo para 13.0 (evita a enxurrada de warnings e incompatibilidades)
+      # alvo mínimo iOS
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-
-      # Xcode 16.x traz Swift 6 por default; muitos pods (Firebase inclusive) ainda requerem Swift 5.10
+      # força Swift 5.10 (Xcode 16 defaulta pra 6)
       config.build_settings['SWIFT_VERSION'] = '5.10'
-
-      # FirebaseCoreInternal usa 'internal import ...' → precisa desse feature flag
+      # FirebaseCoreInternal precisa desse flag
       flags = config.build_settings['OTHER_SWIFT_FLAGS'] || '$(inherited)'
       flags += ' -Xfrontend -enable-experimental-feature -Xfrontend AccessLevelOnImport'
       config.build_settings['OTHER_SWIFT_FLAGS'] = flags
     end
-  end
 
-  # Recomendado pelo Flutter para integração de Pods
-  flutter_additional_ios_build_settings(installer)
+    # 👇 O CERTO é chamar para cada target (não no installer!)
+    flutter_additional_ios_build_settings(t)
+  end
 end
