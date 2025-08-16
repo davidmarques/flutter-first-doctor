@@ -16,7 +16,7 @@ jobs:
       ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
-      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}                   # base64 de UMA LINHA do .p12
+      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}                   # base64 (uma linha) do .p12
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }} # ex: vPNZskLS
       IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }} # base64 do .mobileprovision
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
@@ -44,7 +44,7 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p ~/private_keys
 
-          # Decode usando BSD base64 do macOS (-D)
+          # Decode (BSD base64 do macOS)
           printf "%s" "$IOS_CERTIFICATE" | base64 -D > ios/certs/certificate.p12
           printf "%s" "$IOS_PROVISIONING_PROFILE" | base64 -D > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
           printf "%s" "$ASC_API_KEY_P8" | base64 -D > ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
@@ -54,59 +54,73 @@ jobs:
           ls -l ios/certs/certificate.p12
           file ios/certs/certificate.p12
 
-  # 4) Validar P12 com openssl e extrair PEMs (chave + cert) e converter chave p/ PKCS#8
+      # 4) Validar P12 com openssl e extrair PEMs (chave + cert) + converter chave p/ PKCS#8
       - name: Validate & extract from PKCS12
         run: |
-          # Valida senha do P12 (se falhar, sai)
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -nokeys -passin pass:"$IOS_CERTIFICATE_PASSWORD" >/dev/null
           echo "P12 password OK (openssl)"
 
-          # Extrai chave privada (PEM) e certificado (PEM)
+          # Extrai chave privada e certificado
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -nocerts -nodes -passin pass:"$IOS_CERTIFICATE_PASSWORD" -out ios/certs/key.pem
           /usr/bin/openssl pkcs12 -in ios/certs/certificate.p12 -clcerts -nokeys -passin pass:"$IOS_CERTIFICATE_PASSWORD" -out ios/certs/cert.pem
 
-          # Converte a chave para PKCS#8 sem criptografia (o security adora isso)
+          # Converte chave p/ PKCS#8 sem criptografia (BEGIN PRIVATE KEY)
           /usr/bin/openssl pkcs8 -topk8 -nocrypt -in ios/certs/key.pem -out ios/certs/key_pkcs8.pem
 
           chmod 600 ios/certs/key.pem ios/certs/key_pkcs8.pem ios/certs/cert.pem
+
           echo "PEMs prontos:"
           ls -l ios/certs/key.pem ios/certs/key_pkcs8.pem ios/certs/cert.pem
+          head -n 1 ios/certs/key_pkcs8.pem
+          head -n 1 ios/certs/cert.pem
 
-      # 5) Keychain e import (importa a chave PKCS#8 e o certificado)
+      # 5) Keychain e import (auto-detect) + fallback para DER se necessário
       - name: Setup keychain and import key/cert
         run: |
+          set -e
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
 
-          # Importa a CHAVE PRIVADA em PKCS#8
-          security import ios/certs/key_pkcs8.pem \
-            -k build.keychain \
-            -t priv \
-            -f pkcs8 \
-            -A \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
+          echo ">>> Importando CHAVE (PKCS#8 PEM)"
+          if ! security import ios/certs/key_pkcs8.pem \
+                -k build.keychain \
+                -A \
+                -T /usr/bin/codesign \
+                -T /usr/bin/security; then
+            echo "Import PEM falhou; tentando DER pkcs8..."
+            /usr/bin/openssl pkcs8 -topk8 -nocrypt -in ios/certs/key_pkcs8.pem -outform DER -out ios/certs/key_pkcs8.der
+            security import ios/certs/key_pkcs8.der \
+              -k build.keychain \
+              -A \
+              -f pkcs8 \
+              -T /usr/bin/codesign \
+              -T /usr/bin/security
+          fi
 
-          # Importa o CERTIFICADO (PEM). Deixa auto-detectar ou usa pemseq.
-          security import ios/certs/cert.pem \
-            -k build.keychain \
-            -t cert \
-            -f pemseq \
-            -A \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
+          echo ">>> Importando CERTIFICADO (PEM)"
+          if ! security import ios/certs/cert.pem \
+                -k build.keychain \
+                -A \
+                -T /usr/bin/codesign \
+                -T /usr/bin/security; then
+            echo "Import PEM falhou; tentando pemseq..."
+            security import ios/certs/cert.pem \
+              -k build.keychain \
+              -A \
+              -f pemseq \
+              -T /usr/bin/codesign \
+              -T /usr/bin/security
+          fi
 
-          # Garante acesso da chave para as tools da Apple
+          # Dar acesso às tools da Apple
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
-          # Conferência (não falha o job)
+          echo ">>> Identities disponíveis:"
           security find-identity -v -p codesigning build.keychain || true
 
-
-
-      # 6) Build IPA
+      # 6) Build IPA (usa seu ExportOptions.plist com method app-store e perfil correto)
       - name: Build IPA
         run: |
           flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
